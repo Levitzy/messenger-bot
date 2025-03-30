@@ -1,12 +1,9 @@
 module.exports = {
     name: 'ip',
-    description: 'Check your public IP or ping an IP address',
+    description: 'Check your public IP or get details about an IP address',
     usage: 'ip [ipAddress]',
     async execute(api, event, args) {
         const https = require('https');
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
 
         try {
             if (args.length === 0) {
@@ -14,13 +11,17 @@ module.exports = {
 
                 const publicIP = await getPublicIP();
                 await api.sendMessage(`Your public IP address is: ${publicIP}`, event.threadID);
+
+                // Get additional info about user's IP
+                const ipInfo = await getIPInfo(publicIP);
+                await api.sendMessage(formatIPInfo(ipInfo), event.threadID);
             } else {
-                const ipToPing = args[0];
+                const ipToCheck = args[0];
 
-                await api.sendMessage(`Pinging ${ipToPing}...`, event.threadID);
+                await api.sendMessage(`Fetching information for IP: ${ipToCheck}...`, event.threadID);
 
-                const pingResult = await pingIP(ipToPing);
-                await api.sendMessage(pingResult, event.threadID);
+                const ipInfo = await getIPInfo(ipToCheck);
+                await api.sendMessage(formatIPInfo(ipInfo), event.threadID);
             }
         } catch (error) {
             console.error("Error in IP command:", error);
@@ -45,17 +46,48 @@ module.exports = {
             });
         }
 
-        async function pingIP(ip) {
-            try {
-                const pingCommand = process.platform === 'win32'
-                    ? `ping -n 4 ${ip}`
-                    : `ping -c 4 ${ip}`;
+        async function getIPInfo(ip) {
+            return new Promise((resolve, reject) => {
+                https.get(`https://ipapi.co/${ip}/json/`, (res) => {
+                    let data = '';
 
-                const { stdout } = await execAsync(pingCommand);
-                return `Ping results for ${ip}:\n${stdout}`;
-            } catch (error) {
-                throw new Error(`Failed to ping ${ip}: ${error.message}`);
-            }
+                    res.on('data', (chunk) => {
+                        data += chunk;
+                    });
+
+                    res.on('end', () => {
+                        try {
+                            const ipInfo = JSON.parse(data);
+
+                            if (ipInfo.error) {
+                                reject(new Error(ipInfo.reason || 'Invalid IP address'));
+                                return;
+                            }
+
+                            resolve(ipInfo);
+                        } catch (error) {
+                            reject(new Error(`Failed to parse IP info: ${error.message}`));
+                        }
+                    });
+                }).on('error', (err) => {
+                    reject(new Error(`Failed to get IP info: ${err.message}`));
+                });
+            });
+        }
+
+        function formatIPInfo(ipInfo) {
+            return `📍 IP Information 📍
+╔══════════════════════════
+║ IP: ${ipInfo.ip}
+║ Location: ${ipInfo.city}, ${ipInfo.region}, ${ipInfo.country_name}
+║ Coordinates: ${ipInfo.latitude}, ${ipInfo.longitude}
+║ Timezone: ${ipInfo.timezone} (UTC ${ipInfo.utc_offset})
+║ ISP: ${ipInfo.org}
+║ 
+║ Country: ${ipInfo.country_name} (${ipInfo.country_code})
+║ Currency: ${ipInfo.currency_name} (${ipInfo.currency})
+║ Languages: ${ipInfo.languages}
+╚══════════════════════════`;
         }
     }
 };
