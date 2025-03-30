@@ -1,25 +1,20 @@
 module.exports = {
     name: 'ip',
-    description: 'Check your public IP or get details about an IP address',
+    description: 'Check your IP or get details about an IP address',
     usage: 'ip [ipAddress]',
     async execute(api, event, args) {
         const https = require('https');
 
         try {
+            await api.sendMessage("Fetching IP information...", event.threadID);
+
             if (args.length === 0) {
-                await api.sendMessage("Fetching your public IP address...", event.threadID);
-
-                const publicIP = await getPublicIP();
-                await api.sendMessage(`Your public IP address is: ${publicIP}`, event.threadID);
-
-                // Get additional info about user's IP
-                const ipInfo = await getIPInfo(publicIP);
+                // Get user's IP using jsonip.com
+                const ipData = await getJsonIP();
+                const ipInfo = await getIPInfo(ipData.ip);
                 await api.sendMessage(formatIPInfo(ipInfo), event.threadID);
             } else {
                 const ipToCheck = args[0];
-
-                await api.sendMessage(`Fetching information for IP: ${ipToCheck}...`, event.threadID);
-
                 const ipInfo = await getIPInfo(ipToCheck);
                 await api.sendMessage(formatIPInfo(ipInfo), event.threadID);
             }
@@ -28,9 +23,9 @@ module.exports = {
             await api.sendMessage(`Error: ${error.message}`, event.threadID);
         }
 
-        async function getPublicIP() {
+        async function getJsonIP() {
             return new Promise((resolve, reject) => {
-                https.get('https://api.ipify.org', (res) => {
+                https.get('https://jsonip.com', (res) => {
                     let data = '';
 
                     res.on('data', (chunk) => {
@@ -38,10 +33,15 @@ module.exports = {
                     });
 
                     res.on('end', () => {
-                        resolve(data.trim());
+                        try {
+                            const ipData = JSON.parse(data);
+                            resolve(ipData);
+                        } catch (error) {
+                            reject(new Error(`Failed to parse IP data: ${error.message}`));
+                        }
                     });
                 }).on('error', (err) => {
-                    reject(new Error(`Failed to get public IP: ${err.message}`));
+                    reject(new Error(`Failed to get IP: ${err.message}`));
                 });
             });
         }
